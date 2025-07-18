@@ -1,11 +1,10 @@
----
 - name: Build and Deploy Custom Nginx App (via Shell Commands - S2I Strategy)
   hosts: localhost
   connection: local
   gather_facts: false
   vars:
-    api_server_url: "https://api.cluster-cjrh7.cjrh7.sandbox2962.opentlc.com:6443" # HARDCODED API SERVER URL
-    bearer_token: "sha256~9k_q60QYt-oN0KVDqtcSEMxIWARK2FQB1Z642VrlukY" # HARDCODED BEARER TOKEN
+    api_server_url: "YOUR_API_SERVER_URL_HERE" # HARDCODED API SERVER URL
+    bearer_token: "YOUR_BEARER_TOKEN_HERE" # HARDCODED BEARER TOKEN
     kubeconfig_file_content: |
       apiVersion: v1
       clusters:
@@ -19,7 +18,7 @@
           user: default-user
         name: default-context
       current-context: default-context
-        users:
+      users:
       - name: default-user
         user:
           token: {{ bearer_token }}
@@ -54,32 +53,15 @@
             git:
               uri: https://github.com/kevalmajithia/aap-demo.git
               ref: main
-            contextDir: . # Ensure context dir is root of repo
+            contextDir: .
           strategy:
-            type: Source # CHANGED STRATEGY TO SOURCE
+            type: Source
             sourceStrategy:
               from:
                 kind: ImageStreamTag
-                # Using a generic S2I builder that might be available
-                # This might need to be adjusted based on available builders in your OCP
                 name: 'python:3.9-ubi8' # Try a common S2I builder (e.g., Python, NodeJS, or 's2i-base')
-                namespace: openshift # S2I builders are usually in 'openshift' namespace
-              # If the above doesn't work, try a very generic base like:
-              # name: 's2i-base'
-              # namespace: openshift
-              # If still fails, try to find available S2I builders in your OCP:
-              # oc get imagestream -n openshift -l builder=true
-            output:
-              to:
-                kind: ImageStreamTag
-                name: custom-nginx-app:latest
-            triggers:
-              - type: ConfigChange
-              - type: ImageChange
-                from:
-                  kind: ImageStreamTag
-                  name: custom-nginx-app:latest
-        EOF_BUILD
+                namespace: openshift
+        EOF_BUILD # THIS MARKER MUST BE AT THE START OF THE LINE, NO INDENTATION
       args:
         stdin: yes
       changed_when: true
@@ -119,7 +101,7 @@
                   securityContext:
                     runAsNonRoot: true
                     allowPrivilegeEscalation: false
-        EOF_DEPLOY
+        EOF_DEPLOY # THIS MARKER MUST BE AT THE START OF THE LINE, NO INDENTATION
       args:
         stdin: yes
       changed_when: true
@@ -146,7 +128,7 @@
               port: 8080
               targetPort: 8080
           type: ClusterIP
-        EOF_SVC
+        EOF_SVC # THIS MARKER MUST BE AT THE START OF THE LINE, NO INDENTATION
       args:
         stdin: yes
       changed_when: true
@@ -172,7 +154,7 @@
           tls:
             termination: edge
             insecureEdgeTerminationPolicy: Redirect
-        EOF_ROUTE
+        EOF_ROUTE # THIS MARKER MUST BE AT THE START OF THE LINE, NO INDENTATION
       args:
         stdin: yes
       changed_when: true
