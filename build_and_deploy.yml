@@ -5,7 +5,6 @@
   vars:
     api_server_url: "https://api.cluster-cjrh7.cjrh7.sandbox2962.opentlc.com:6443" # HARDCODED API SERVER URL
     bearer_token: "sha256~9k_q60QYt-oN0KVDqtcSEMxIWARK2FQB1Z642VrlukY" # HARDCODED BEARER TOKEN
-    # Corrected structure for kubeconfig content
     kubeconfig_file_content: |
       apiVersion: v1
       clusters:
@@ -34,7 +33,7 @@
 
     - name: Write kubeconfig file to EE
       ansible.builtin.copy:
-        content: "{{ kubeconfig_file_content }}" # CORRECTED VARIABLE ACCESS
+        content: "{{ kubeconfig_file_content }}"
         dest: /tmp/ocp_kubeconfig
         mode: '0600'
       delegate_to: localhost
@@ -54,10 +53,10 @@
             git:
               uri: https://github.com/kevalmajithia/aap-demo.git
               ref: main
-          strategy:
-            type: Docker
-            dockerStrategy:
-              dockerfilePath: Dockerfile
+            strategy:
+              type: Docker
+              dockerStrategy:
+                dockerfilePath: Dockerfile
             output:
               to:
                 kind: ImageStreamTag
@@ -163,9 +162,9 @@
             insecureEdgeTerminationPolicy: Redirect
         EOF_ROUTE
       args:
-          stdin: yes
-        changed_when: true
-        delegate_to: localhost
-        run_once: true
-        register: route_output
-      - debug: var=route_output.stdout_lines
+        stdin: yes
+      changed_when: true
+      delegate_to: localhost
+      run_once: true
+      register: route_output
+    - debug: var=route_output.stdout_lines
