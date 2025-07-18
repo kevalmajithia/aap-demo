@@ -1,4 +1,4 @@
-- name: Build and Deploy Custom Nginx App
+- name: Build and Deploy Custom Nginx App (No Wait)
   hosts: localhost
   connection: local
   gather_facts: false
@@ -36,19 +36,7 @@
       register: build_config_result
     - debug: var=build_config_result
 
-    - name: Wait for ImageStreamTag to be available after build
-      kubernetes.core.k8s_info:
-        kubeconfig: "{{ lookup('env', 'KUBECONFIG') }}"
-        api_version: image.openshift.io/v1
-        kind: ImageStreamTag
-        name: custom-nginx-app
-        namespace: aap # YOUR PROJECT NAME
-        wait: true
-        wait_condition: 'Ready=True' # CHANGED: SIMPLIFIED FORMAT
-        wait_timeout: 600 # Wait up to 10 minutes (600 seconds)
-        wait_sleep: 10 # Check every 10 seconds
-      register: imagestream_tag_info
-    - debug: var=imagestream_tag_info
+    # REMOVED: The problematic "Wait for ImageStreamTag to be available after build" task
 
     - name: Deploy Custom Nginx Application
       kubernetes.core.k8s:
