@@ -1,4 +1,5 @@
-- name: Build and Deploy Custom Nginx App (via Shell Commands)
+---
+- name: Build and Deploy Custom Nginx App (via Shell Commands - S2I Strategy)
   hosts: localhost
   connection: local
   gather_facts: false
@@ -18,7 +19,7 @@
           user: default-user
         name: default-context
       current-context: default-context
-      users:
+        users:
       - name: default-user
         user:
           token: {{ bearer_token }}
@@ -53,10 +54,21 @@
             git:
               uri: https://github.com/kevalmajithia/aap-demo.git
               ref: main
-            strategy:
-              type: Docker
-              dockerStrategy:
-                dockerfilePath: Dockerfile
+            contextDir: . # Ensure context dir is root of repo
+          strategy:
+            type: Source # CHANGED STRATEGY TO SOURCE
+            sourceStrategy:
+              from:
+                kind: ImageStreamTag
+                # Using a generic S2I builder that might be available
+                # This might need to be adjusted based on available builders in your OCP
+                name: 'python:3.9-ubi8' # Try a common S2I builder (e.g., Python, NodeJS, or 's2i-base')
+                namespace: openshift # S2I builders are usually in 'openshift' namespace
+              # If the above doesn't work, try a very generic base like:
+              # name: 's2i-base'
+              # namespace: openshift
+              # If still fails, try to find available S2I builders in your OCP:
+              # oc get imagestream -n openshift -l builder=true
             output:
               to:
                 kind: ImageStreamTag
