@@ -1,164 +1,74 @@
-- name: Build and Deploy Custom Nginx App (via Shell Commands - S2I Strategy)
+- name: Deploy Custom Nginx App
   hosts: localhost
   connection: local
   gather_facts: false
-  vars:
-    api_server_url: "YOUR_API_SERVER_URL_HERE" # HARDCODED API SERVER URL
-    bearer_token: "YOUR_BEARER_TOKEN_HERE" # HARDCODED BEARER TOKEN
-    kubeconfig_file_content: |
-      apiVersion: v1
-      clusters:
-      - cluster:
-          server: {{ api_server_url }}
-          insecure-skip-tls-verify: true # Bypass SSL verification for demo
-        name: default-cluster
-      contexts:
-      - context:
-          cluster: default-cluster
-          user: default-user
-        name: default-context
-      current-context: default-context
-      users:
-      - name: default-user
-        user:
-          token: {{ bearer_token }}
   tasks:
-    - name: Create temporary directory for OCP YAML files
-      ansible.builtin.file:
-        path: /tmp/ocp_nginx_deploy_shell
-        state: directory
-        mode: '0755'
-      delegate_to: localhost
-      run_once: true
-
-    - name: Write kubeconfig file to EE
-      ansible.builtin.copy:
-        content: "{{ kubeconfig_file_content }}"
-        dest: /tmp/ocp_kubeconfig
-        mode: '0600'
-      delegate_to: localhost
-      run_once: true
-
-    - name: Start OpenShift Build for Custom Nginx Image
-      ansible.builtin.shell: |
-        oc --kubeconfig /tmp/ocp_kubeconfig create -f - <<EOF_BUILD
-        apiVersion: build.openshift.io/v1
-        kind: BuildConfig
-        metadata:
-          name: custom-nginx-build
-          namespace: aap # YOUR PROJECT NAME
-        spec:
-          source:
-            type: Git
-            git:
-              uri: https://github.com/kevalmajithia/aap-demo.git
-              ref: main
-            contextDir: .
-          strategy:
-            type: Source
-            sourceStrategy:
-              from:
-                kind: ImageStreamTag
-                name: 'python:3.9-ubi8' # Try a common S2I builder (e.g., Python, NodeJS, or 's2i-base')
-                namespace: openshift
-        EOF_BUILD # THIS MARKER MUST BE AT THE START OF THE LINE, NO INDENTATION
-      args:
-        stdin: yes
-      changed_when: true
-      delegate_to: localhost
-      run_once: true
-      register: build_output
-    - debug: var=build_output.stdout_lines
-
-    # No wait task, rely on manual check
-
-    - name: Deploy Custom Nginx Application
-      ansible.builtin.shell: |
-        oc --kubeconfig /tmp/ocp_kubeconfig create -f - <<EOF_DEPLOY
-        apiVersion: apps/v1
-        kind: DeploymentConfig
-        metadata:
-          name: custom-nginx-app
-          namespace: aap # YOUR PROJECT NAME
-          labels:
-            app: custom-nginx-app
-        spec:
-          replicas: 1
-          selector:
-            matchLabels:
+    - name: Create Nginx DeploymentConfig
+      kubernetes.core.k8s:
+        kubeconfig: "{{ lookup('env', 'KUBECONFIG') }}"
+        state: present
+        definition:
+          apiVersion: apps.openshift.io/v1 # API version for DeploymentConfig
+          kind: DeploymentConfig # Type of Kubernetes object
+          metadata: # Metadata about this object
+            name: custom-nginx-app # Name of the deployment
+            namespace: aap # Namespace where it will be deployed (your project)
+            labels: # Labels for the deployment
               app: custom-nginx-app
-          template:
-            metadata:
-              labels:
-                app: custom-nginx-app
-            spec:
-              containers:
-                - name: nginx
-                  image: image-registry.openshift-image-registry.svc:5000/aap/custom-nginx-app:latest
-                  ports:
-                    - containerPort: 8080
-                  imagePullPolicy: Always
-                  securityContext:
-                    runAsNonRoot: true
-                    allowPrivilegeEscalation: false
-        EOF_DEPLOY # THIS MARKER MUST BE AT THE START OF THE LINE, NO INDENTATION
-      args:
-        stdin: yes
-      changed_when: true
-      delegate_to: localhost
-      run_once: true
-      register: deploy_output
-    - debug: var=deploy_output.stdout_lines
-
+          spec: # Specification for the deployment
+            replicas: 1 # Number of Nginx pods to run
+            selector: # How the service finds these pods
+              app: custom-nginx-app
+            template: # Template for the pods
+              metadata:
+                labels: # Labels for the pods (must match selector)
+                  app: custom-nginx-app
+              spec:
+                containers: # List of containers in the pod
+                  - name: nginx # Name of the container
+                    image: image-registry.openshift-image-registry.svc:5000/aap/custom-nginx-app:latest # Image to use (your custom built image)
+                    ports: # Ports the container listens on
+                      - containerPort: 8080 # Internal port Nginx listens on
+                    imagePullPolicy: Always # Always pull the latest image
+                    securityContext: # Security settings for the container
+                      runAsNonRoot: true # Run as non-root user (OpenShift requirement)
+                      allowPrivilegeEscalation: false # Prevent privilege escalation (security best practice)
     - name: Create Nginx Service
-      ansible.builtin.shell: |
-        oc --kubeconfig /tmp/ocp_kubeconfig create -f - <<EOF_SVC
-        apiVersion: v1
-        kind: Service
-        metadata:
-          name: custom-nginx-svc
-          namespace: aap # YOUR PROJECT NAME
-          labels:
-            app: custom-nginx-app
-        spec:
-          selector:
-            app: custom-nginx-app
-          ports:
-            - protocol: TCP
-              port: 8080
-              targetPort: 8080
-          type: ClusterIP
-        EOF_SVC # THIS MARKER MUST BE AT THE START OF THE LINE, NO INDENTATION
-      args:
-        stdin: yes
-      changed_when: true
-      delegate_to: localhost
-      run_once: true
-      register: svc_output
-    - debug: var=svc_output.stdout_lines
-
+      kubernetes.core.k8s:
+        kubeconfig: "{{ lookup('env', 'KUBECONFIG') }}"
+        state: present
+        definition:
+          apiVersion: v1 # API version for Service
+          kind: Service # Type of Kubernetes object
+          metadata: # Metadata about this object
+            name: custom-nginx-svc # Name of the service
+            namespace: aap # Namespace where it will be deployed
+            labels: # Labels for the service
+              app: custom-nginx-app
+          spec: # Specification for the service
+            selector: # How the service finds the pods (must match pod labels)
+              app: custom-nginx-app
+            ports: # Ports exposed by the service
+              - protocol: TCP # Protocol for the port
+                port: 8080 # Port exposed by the service
+                targetPort: 8080 # Port on the pod that the service targets
+            type: ClusterIP # Internal service, accessible within the cluster
     - name: Create Nginx Route
-      ansible.builtin.shell: |
-        oc --kubeconfig /tmp/ocp_kubeconfig create -f - <<EOF_ROUTE
-        apiVersion: route.openshift.io/v1
-        kind: Route
-        metadata:
-          name: custom-nginx-route
-          namespace: aap # YOUR PROJECT NAME
-        spec:
-          to:
-            kind: Service
-            name: custom-nginx-svc
-          port:
-            targetPort: 8080-tcp
-          tls:
-            termination: edge
-            insecureEdgeTerminationPolicy: Redirect
-        EOF_ROUTE # THIS MARKER MUST BE AT THE START OF THE LINE, NO INDENTATION
-      args:
-        stdin: yes
-      changed_when: true
-      delegate_to: localhost
-      run_once: true
-      register: route_output
-    - debug: var=route_output.stdout_lines
+      kubernetes.core.k8s:
+        kubeconfig: "{{ lookup('env', 'KUBECONFIG') }}"
+        state: present
+        definition:
+          apiVersion: route.openshift.io/v1 # API version for Route
+          kind: Route # Type of Kubernetes object
+          metadata: # Metadata about this object
+            name: custom-nginx-route # Name of the route
+            namespace: aap # Namespace where it will be deployed
+          spec: # Specification for the route
+            to: # Target of the route
+              kind: Service # Route targets a Service
+              name: custom-nginx-svc # Name of the service to target
+            port: # Port on the service to target
+              targetPort: 8080-tcp # Target port (must match service port)
+            tls: # TLS/SSL configuration
+              termination: edge # TLS termination at the edge (router)
+              insecureEdgeTerminationPolicy: Redirect # Redirect HTTP to HTTPS
