@@ -1,5 +1,5 @@
-dockerfile FROM httpd:latest
-# CHANGED FROM NGINX TO HTTPD
+FROM nginx 
+
 COPY index.html /usr/local/apache2/htdocs/index.html 
 
 EXPOSE 8080
