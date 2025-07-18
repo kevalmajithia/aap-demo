@@ -1,7 +1,4 @@
-FROM nginx 
-
-COPY index.html /usr/local/apache2/htdocs/index.html 
-
+FROM quay.io/centos/httpd-24-centos7
+COPY index.html /var/www/html/index.html
 EXPOSE 8080
-
-CMD ["nginx", "-g", "daemon off;"]
+CMD ["httpd", "-DFOREGROUND"]
