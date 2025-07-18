@@ -1,0 +1,112 @@
+- name: Build and Deploy Custom Nginx App
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Start OpenShift Build for Custom Nginx Image
+      kubernetes.core.k8s:
+        kubeconfig: "{{ lookup('env', 'KUBECONFIG') }}"
+        state: present
+        definition:
+          apiVersion: build.openshift.io/v1
+          kind: BuildConfig
+          metadata:
+            name: custom-nginx-build # Name of the BuildConfig
+            namespace: aap # YOUR PROJECT NAME
+          spec:
+            source:
+              type: Git
+              git:
+                uri: https://github.com/kevalmajithia/aap-demo.git # YOUR REPO URL
+                ref: main # Or 'master'
+            strategy:
+              type: Docker
+              dockerStrategy:
+                dockerfilePath: Dockerfile
+            output:
+              to:
+                kind: ImageStreamTag
+                name: custom-nginx-app:latest # ImageStream to create/update
+            triggers:
+              - type: ConfigChange
+              - type: ImageChange
+                from:
+                  kind: ImageStreamTag
+                  name: custom-nginx-app:latest
+      register: build_config_result
+    - debug: var=build_config_result
+
+    - name: Wait for ImageStreamTag to be available after build
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ lookup('env', 'KUBECONFIG') }}"
+        api_version: image.openshift.io/v1
+        kind: ImageStreamTag
+        name: custom-nginx-app
+        namespace: aap # YOUR PROJECT NAME
+        wait: true
+        wait_for_conditions:
+          - type: Ready
+            status: 'True'
+      register: imagestream_tag_info
+    - debug: var=imagestream_tag_info
+
+    - name: Deploy Custom Nginx Application
+      kubernetes.core.k8s:
+        kubeconfig: "{{ lookup('env', 'KUBECONFIG') }}"
+        state: present
+        definition:
+          - apiVersion: apps/v1
+            kind: DeploymentConfig
+            metadata:
+              name: custom-nginx-app
+              namespace: aap # YOUR PROJECT NAME
+              labels:
+                app: custom-nginx-app
+            spec:
+              replicas: 1
+              selector:
+                matchLabels:
+                  app: custom-nginx-app
+              template:
+                metadata:
+                  labels:
+                    app: custom-nginx-app
+                spec:
+                  containers:
+                    - name: nginx
+                      image: image-registry.openshift-image-registry.svc:5000/aap/custom-nginx-app:latest # Use internal registry image
+                      ports:
+                        - containerPort: 8080
+                      imagePullPolicy: Always
+                      securityContext:
+                        runAsNonRoot: true
+                        allowPrivilegeEscalation: false
+          - apiVersion: v1
+            kind: Service
+            metadata:
+              name: custom-nginx-svc
+              namespace: aap # YOUR PROJECT NAME
+              labels:
+                app: custom-nginx-app
+            spec:
+              selector:
+                app: custom-nginx-app
+              ports:
+                - protocol: TCP
+                  port: 8080
+                  targetPort: 8080
+              type: ClusterIP
+          - apiVersion: route.openshift.io/v1
+            kind: Route
+            metadata:
+              name: custom-nginx-route
+              namespace: aap # YOUR PROJECT NAME
+            spec:
+              to:
+                kind: Service
+                name: custom-nginx-svc
+              port:
+                targetPort: 8080-tcp
+              tls:
+                termination: edge
+                insecureEdgeTerminationPolicy: Redirect
