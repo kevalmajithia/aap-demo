@@ -43,8 +43,8 @@
         kind: ImageStreamTag
         name: custom-nginx-app
         namespace: aap # YOUR PROJECT NAME
-        wait: true # CHANGED: Use 'wait' parameter
-        wait_condition: '{"status":{"conditions":[{"type":"Ready","status":"True"}]}}' # CHANGED: Use 'wait_condition'
+        wait: true
+        wait_condition: 'Ready=True' # CHANGED: SIMPLIFIED FORMAT
         wait_timeout: 600 # Wait up to 10 minutes (600 seconds)
         wait_sleep: 10 # Check every 10 seconds
       register: imagestream_tag_info
