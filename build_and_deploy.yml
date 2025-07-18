@@ -1,67 +1,76 @@
-- name: Deploy Pre-Built Hello OpenShift App
+- name: Deploy Hello OpenShift App
   hosts: localhost
   connection: local
   gather_facts: false
   tasks:
-    # REMOVED: Build-related tasks (Start Build, Wait for ImageStreamTag)
-
-    - name: Deploy Hello OpenShift Application
+    - name: Create Hello-OpenShift DeploymentConfig
       kubernetes.core.k8s:
         kubeconfig: "{{ lookup('env', 'KUBECONFIG') }}"
         state: present
         definition:
-          - apiVersion: apps/v1
-            kind: DeploymentConfig
-            metadata:
-              name: hello-openshift-app
-              namespace: aap # YOUR PROJECT NAME
-              labels:
-                app: hello-openshift-app
-            spec:
-              replicas: 1
-              selector:
-                matchLabels:
+          apiVersion: apps.openshift.io/v1
+          kind: DeploymentConfig
+          metadata:
+            name: hello-openshift-app
+            namespace: aap
+            labels:
+              app: hello-openshift-app
+          spec:
+            replicas: 1
+            selector:
+              app: hello-openshift-app
+            template:
+              metadata:
+                labels:
                   app: hello-openshift-app
-              template:
-                metadata:
-                  labels:
-                    app: hello-openshift-app
-                spec:
-                  containers:
-                    - name: hello-openshift
-                      image: quay.io/openshift/origin-hello-openshift # DIRECTLY USE PRE-BUILT IMAGE
-                      ports:
-                        - containerPort: 8080 # This image usually listens on 8080
-                      imagePullPolicy: Always
-                      securityContext:
-                        runAsNonRoot: true
-                        allowPrivilegeEscalation: false
-          - apiVersion: v1
-            kind: Service
-            metadata:
+              spec:
+                containers:
+                  - name: hello-openshift
+                    image: quay.io/openshift/origin-hello-openshift
+                    ports:
+                      - containerPort: 8080
+                    imagePullPolicy: Always
+                    securityContext:
+                      runAsNonRoot: true
+                      allowPrivilegeEscalation: false
+
+    - name: Create Service
+      kubernetes.core.k8s:
+        kubeconfig: "{{ lookup('env', 'KUBECONFIG') }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: hello-openshift-svc
+            namespace: aap
+            labels:
+              app: hello-openshift-app
+          spec:
+            selector:
+              app: hello-openshift-app
+            ports:
+              - protocol: TCP
+                port: 8080
+                targetPort: 8080
+            type: ClusterIP
+
+    - name: Create Route
+      kubernetes.core.k8s:
+        kubeconfig: "{{ lookup('env', 'KUBECONFIG') }}"
+        state: present
+        definition:
+          apiVersion: route.openshift.io/v1
+          kind: Route
+          metadata:
+            name: hello-openshift-route
+            namespace: aap
+          spec:
+            to:
+              kind: Service
               name: hello-openshift-svc
-              namespace: aap # YOUR PROJECT NAME
-              labels:
-                app: hello-openshift-app
-            spec:
-              selector:
-                app: hello-openshift-app
-              ports:
-                - protocol: TCP
-                  port: 8080
-                  targetPort: 8080
-              type: ClusterIP
-          - apiVersion: route.openshift.io/v1
-            kind: Route
-            metadata:
-              name: hello-openshift-route
-              namespace: aap # YOUR PROJECT NAME
-            spec:
-              to:
-                kind: Service
-                name: hello-openshift-svc
-              port:
-                targetPort: 8080-tcp
-              tls:
-                termination: edge
-                insecureEdgeTerminationPolicy: Redirect
+            port:
+              targetPort: 8080-tcp
+            tls:
+              termination: edge
+              insecureEdgeTerminationPolicy: Redirect
