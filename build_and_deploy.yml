@@ -1,74 +1,67 @@
-- name: Deploy Custom Nginx App
+- name: Deploy Pre-Built Hello OpenShift App
   hosts: localhost
   connection: local
   gather_facts: false
   tasks:
-    - name: Create Nginx DeploymentConfig
+    # REMOVED: Build-related tasks (Start Build, Wait for ImageStreamTag)
+
+    - name: Deploy Hello OpenShift Application
       kubernetes.core.k8s:
         kubeconfig: "{{ lookup('env', 'KUBECONFIG') }}"
         state: present
         definition:
-          apiVersion: apps.openshift.io/v1 # API version for DeploymentConfig
-          kind: DeploymentConfig # Type of Kubernetes object
-          metadata: # Metadata about this object
-            name: custom-nginx-app # Name of the deployment
-            namespace: aap # Namespace where it will be deployed (your project)
-            labels: # Labels for the deployment
-              app: custom-nginx-app
-          spec: # Specification for the deployment
-            replicas: 1 # Number of Nginx pods to run
-            selector: # How the service finds these pods
-              app: custom-nginx-app
-            template: # Template for the pods
-              metadata:
-                labels: # Labels for the pods (must match selector)
-                  app: custom-nginx-app
-              spec:
-                containers: # List of containers in the pod
-                  - name: nginx # Name of the container
-                    image: image-registry.openshift-image-registry.svc:5000/aap/custom-nginx-app:latest # Image to use (your custom built image)
-                    ports: # Ports the container listens on
-                      - containerPort: 8080 # Internal port Nginx listens on
-                    imagePullPolicy: Always # Always pull the latest image
-                    securityContext: # Security settings for the container
-                      runAsNonRoot: true # Run as non-root user (OpenShift requirement)
-                      allowPrivilegeEscalation: false # Prevent privilege escalation (security best practice)
-    - name: Create Nginx Service
-      kubernetes.core.k8s:
-        kubeconfig: "{{ lookup('env', 'KUBECONFIG') }}"
-        state: present
-        definition:
-          apiVersion: v1 # API version for Service
-          kind: Service # Type of Kubernetes object
-          metadata: # Metadata about this object
-            name: custom-nginx-svc # Name of the service
-            namespace: aap # Namespace where it will be deployed
-            labels: # Labels for the service
-              app: custom-nginx-app
-          spec: # Specification for the service
-            selector: # How the service finds the pods (must match pod labels)
-              app: custom-nginx-app
-            ports: # Ports exposed by the service
-              - protocol: TCP # Protocol for the port
-                port: 8080 # Port exposed by the service
-                targetPort: 8080 # Port on the pod that the service targets
-            type: ClusterIP # Internal service, accessible within the cluster
-    - name: Create Nginx Route
-      kubernetes.core.k8s:
-        kubeconfig: "{{ lookup('env', 'KUBECONFIG') }}"
-        state: present
-        definition:
-          apiVersion: route.openshift.io/v1 # API version for Route
-          kind: Route # Type of Kubernetes object
-          metadata: # Metadata about this object
-            name: custom-nginx-route # Name of the route
-            namespace: aap # Namespace where it will be deployed
-          spec: # Specification for the route
-            to: # Target of the route
-              kind: Service # Route targets a Service
-              name: custom-nginx-svc # Name of the service to target
-            port: # Port on the service to target
-              targetPort: 8080-tcp # Target port (must match service port)
-            tls: # TLS/SSL configuration
-              termination: edge # TLS termination at the edge (router)
-              insecureEdgeTerminationPolicy: Redirect # Redirect HTTP to HTTPS
+          - apiVersion: apps/v1
+            kind: DeploymentConfig
+            metadata:
+              name: hello-openshift-app
+              namespace: aap # YOUR PROJECT NAME
+              labels:
+                app: hello-openshift-app
+            spec:
+              replicas: 1
+              selector:
+                matchLabels:
+                  app: hello-openshift-app
+              template:
+                metadata:
+                  labels:
+                    app: hello-openshift-app
+                spec:
+                  containers:
+                    - name: hello-openshift
+                      image: quay.io/openshift/origin-hello-openshift # DIRECTLY USE PRE-BUILT IMAGE
+                      ports:
+                        - containerPort: 8080 # This image usually listens on 8080
+                      imagePullPolicy: Always
+                      securityContext:
+                        runAsNonRoot: true
+                        allowPrivilegeEscalation: false
+          - apiVersion: v1
+            kind: Service
+            metadata:
+              name: hello-openshift-svc
+              namespace: aap # YOUR PROJECT NAME
+              labels:
+                app: hello-openshift-app
+            spec:
+              selector:
+                app: hello-openshift-app
+              ports:
+                - protocol: TCP
+                  port: 8080
+                  targetPort: 8080
+              type: ClusterIP
+          - apiVersion: route.openshift.io/v1
+            kind: Route
+            metadata:
+              name: hello-openshift-route
+              namespace: aap # YOUR PROJECT NAME
+            spec:
+              to:
+                kind: Service
+                name: hello-openshift-svc
+              port:
+                targetPort: 8080-tcp
+              tls:
+                termination: edge
+                insecureEdgeTerminationPolicy: Redirect
