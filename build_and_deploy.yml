@@ -1,100 +1,173 @@
-- name: Build and Deploy Custom Nginx App (No Wait)
+---
+- name: Build and Deploy Custom Nginx App (via Shell Commands)
   hosts: localhost
   connection: local
   gather_facts: false
+  vars:
+    api_server_url: "https://api.cluster-cjrh7.cjrh7.sandbox2962.opentlc.com:6443" # HARDCODED API SERVER URL
+    bearer_token: "sha256~9k_q60QYt-oN0KVDqtcSEMxIWARK2FQB1Z642VrlukY" # HARDCODED BEARER TOKEN
+    oc_kubeconfig_env: |
+      KUBECONFIG_CONTENT: |
+        apiVersion: v1
+        clusters:
+        - cluster:
+            server: {{ api_server_url }}
+            insecure-skip-tls-verify: true # Bypass SSL verification for demo
+          name: default-cluster
+        contexts:
+        - context:
+            cluster: default-cluster
+            user: default-user
+          name: default-context
+        current-context: default-context
+        users:
+        - name: default-user
+          user:
+            token: {{ bearer_token }}
+    # This will be written to a file and used by oc
   tasks:
-    - name: Start OpenShift Build for Custom Nginx Image
-      kubernetes.core.k8s:
-        kubeconfig: "{{ lookup('env', 'KUBECONFIG') }}"
-        state: present
-        definition:
-          apiVersion: build.openshift.io/v1
-          kind: BuildConfig
-          metadata:
-            name: custom-nginx-build # Name of the BuildConfig
-            namespace: aap # YOUR PROJECT NAME
-          spec:
-            source:
-              type: Git
-              git:
-                uri: https://github.com/kevalmajithia/aap-demo.git # YOUR REPO URL
-                ref: main # Or 'master'
-            strategy:
-              type: Docker
-              dockerStrategy:
-                dockerfilePath: Dockerfile
-            output:
-              to:
-                kind: ImageStreamTag
-                name: custom-nginx-app:latest # ImageStream to create/update
-            triggers:
-              - type: ConfigChange
-              - type: ImageChange
-                from:
-                  kind: ImageStreamTag
-                  name: custom-nginx-app:latest
-      register: build_config_result
-    - debug: var=build_config_result
+    - name: Create temporary directory for OCP YAML files
+      ansible.builtin.file:
+        path: /tmp/ocp_nginx_deploy_shell
+        state: directory
+        mode: '0755'
+      delegate_to: localhost
+      run_once: true
 
-    # REMOVED: The problematic "Wait for ImageStreamTag to be available after build" task
+    - name: Write kubeconfig file to EE
+      ansible.builtin.copy:
+        content: "{{ oc_kubeconfig_env.KUBECONFIG_CONTENT }}"
+        dest: /tmp/ocp_kubeconfig
+        mode: '0600'
+      delegate_to: localhost
+      run_once: true
+
+    - name: Start OpenShift Build for Custom Nginx Image
+      ansible.builtin.shell: |
+        oc --kubeconfig /tmp/ocp_kubeconfig create -f - <<EOF_BUILD
+        apiVersion: build.openshift.io/v1
+        kind: BuildConfig
+        metadata:
+          name: custom-nginx-build
+          namespace: aap # YOUR PROJECT NAME
+        spec:
+          source:
+            type: Git
+            git:
+              uri: https://github.com/kevalmajithia/aap-demo.git
+              ref: main
+          strategy:
+            type: Docker
+            dockerStrategy:
+              dockerfilePath: Dockerfile
+          output:
+            to:
+              kind: ImageStreamTag
+              name: custom-nginx-app:latest
+          triggers:
+            - type: ConfigChange
+            - type: ImageChange
+              from:
+                kind: ImageStreamTag
+                name: custom-nginx-app:latest
+        EOF_BUILD
+      args:
+        stdin: yes
+      changed_when: true
+      delegate_to: localhost
+      run_once: true
+      register: build_output
+    - debug: var=build_output.stdout_lines
+
+    # No wait task, rely on manual check
 
     - name: Deploy Custom Nginx Application
-      kubernetes.core.k8s:
-        kubeconfig: "{{ lookup('env', 'KUBECONFIG') }}"
-        state: present
-        definition:
-          - apiVersion: apps/v1
-            kind: DeploymentConfig
+      ansible.builtin.shell: |
+        oc --kubeconfig /tmp/ocp_kubeconfig create -f - <<EOF_DEPLOY
+        apiVersion: apps/v1
+        kind: DeploymentConfig
+        metadata:
+          name: custom-nginx-app
+          namespace: aap # YOUR PROJECT NAME
+          labels:
+            app: custom-nginx-app
+        spec:
+          replicas: 1
+          selector:
+            matchLabels:
+              app: custom-nginx-app
+          template:
             metadata:
-              name: custom-nginx-app
-              namespace: aap # YOUR PROJECT NAME
               labels:
                 app: custom-nginx-app
             spec:
-              replicas: 1
-              selector:
-                matchLabels:
-                  app: custom-nginx-app
-              template:
-                metadata:
-                  labels:
-                    app: custom-nginx-app
-                spec:
-                  containers:
-                    - name: nginx
-                      image: image-registry.openshift-image-registry.svc:5000/aap/custom-nginx-app:latest # Use internal registry image
-                      ports:
-                        - containerPort: 8080
-                      imagePullPolicy: Always
-                      securityContext:
-                        runAsNonRoot: true
-                        allowPrivilegeEscalation: false
-          - apiVersion: v1
+              containers:
+                - name: nginx
+                  image: image-registry.openshift-image-registry.svc:5000/aap/custom-nginx-app:latest
+                  ports:
+                    - containerPort: 8080
+                  imagePullPolicy: Always
+                  securityContext:
+                    runAsNonRoot: true
+                    allowPrivilegeEscalation: false
+        EOF_DEPLOY
+      args:
+        stdin: yes
+      changed_when: true
+      delegate_to: localhost
+      run_once: true
+      register: deploy_output
+    - debug: var=deploy_output.stdout_lines
+
+    - name: Create Nginx Service
+      ansible.builtin.shell: |
+        oc --kubeconfig /tmp/ocp_kubeconfig create -f - <<EOF_SVC
+        apiVersion: v1
+        kind: Service
+        metadata:
+          name: custom-nginx-svc
+          namespace: aap # YOUR PROJECT NAME
+          labels:
+            app: custom-nginx-app
+        spec:
+          selector:
+            app: custom-nginx-app
+          ports:
+            - protocol: TCP
+              port: 8080
+              targetPort: 8080
+          type: ClusterIP
+        EOF_SVC
+      args:
+        stdin: yes
+      changed_when: true
+      delegate_to: localhost
+      run_once: true
+      register: svc_output
+    - debug: var=svc_output.stdout_lines
+
+    - name: Create Nginx Route
+      ansible.builtin.shell: |
+        oc --kubeconfig /tmp/ocp_kubeconfig create -f - <<EOF_ROUTE
+        apiVersion: route.openshift.io/v1
+        kind: Route
+        metadata:
+          name: custom-nginx-route
+          namespace: aap # YOUR PROJECT NAME
+        spec:
+          to:
             kind: Service
-            metadata:
-              name: custom-nginx-svc
-              namespace: aap # YOUR PROJECT NAME
-              labels:
-                app: custom-nginx-app
-            spec:
-              selector:
-                app: custom-nginx-app
-              ports:
-                - protocol: TCP
-                  port: 8080
-                  targetPort: 8080
-              type: ClusterIP
-          - apiVersion: route.openshift.io/v1
-            kind: Route
-            metadata:
-              name: custom-nginx-route
-              namespace: aap # YOUR PROJECT NAME
-            spec:
-              to:
-                kind: Service
-                name: custom-nginx-svc
-              port:
-                targetPort: 8080-tcp
-              tls:
-                termination: edge
-                insecureEdgeTerminationPolicy: Redirect
+            name: custom-nginx-svc
+          port:
+            targetPort: 8080-tcp
+          tls:
+            termination: edge
+            insecureEdgeTerminationPolicy: Redirect
+        EOF_ROUTE
+      args:
+        stdin: yes
+      changed_when: true
+      delegate_to: localhost
+      run_once: true
+      register: route_output
+    - debug: var=route_output.stdout_lines
