@@ -1,4 +1,3 @@
----
 - name: Build and Deploy Custom Nginx App (via Shell Commands)
   hosts: localhost
   connection: local
@@ -6,25 +5,24 @@
   vars:
     api_server_url: "https://api.cluster-cjrh7.cjrh7.sandbox2962.opentlc.com:6443" # HARDCODED API SERVER URL
     bearer_token: "sha256~9k_q60QYt-oN0KVDqtcSEMxIWARK2FQB1Z642VrlukY" # HARDCODED BEARER TOKEN
-    oc_kubeconfig_env: |
-      KUBECONFIG_CONTENT: |
-        apiVersion: v1
-        clusters:
-        - cluster:
-            server: {{ api_server_url }}
-            insecure-skip-tls-verify: true # Bypass SSL verification for demo
-          name: default-cluster
-        contexts:
-        - context:
-            cluster: default-cluster
-            user: default-user
-          name: default-context
-        current-context: default-context
-        users:
-        - name: default-user
-          user:
-            token: {{ bearer_token }}
-    # This will be written to a file and used by oc
+    # Corrected structure for kubeconfig content
+    kubeconfig_file_content: |
+      apiVersion: v1
+      clusters:
+      - cluster:
+          server: {{ api_server_url }}
+          insecure-skip-tls-verify: true # Bypass SSL verification for demo
+        name: default-cluster
+      contexts:
+      - context:
+          cluster: default-cluster
+          user: default-user
+        name: default-context
+      current-context: default-context
+      users:
+      - name: default-user
+        user:
+          token: {{ bearer_token }}
   tasks:
     - name: Create temporary directory for OCP YAML files
       ansible.builtin.file:
@@ -36,7 +34,7 @@
 
     - name: Write kubeconfig file to EE
       ansible.builtin.copy:
-        content: "{{ oc_kubeconfig_env.KUBECONFIG_CONTENT }}"
+        content: "{{ kubeconfig_file_content }}" # CORRECTED VARIABLE ACCESS
         dest: /tmp/ocp_kubeconfig
         mode: '0600'
       delegate_to: localhost
@@ -60,16 +58,16 @@
             type: Docker
             dockerStrategy:
               dockerfilePath: Dockerfile
-          output:
-            to:
-              kind: ImageStreamTag
-              name: custom-nginx-app:latest
-          triggers:
-            - type: ConfigChange
-            - type: ImageChange
-              from:
+            output:
+              to:
                 kind: ImageStreamTag
                 name: custom-nginx-app:latest
+            triggers:
+              - type: ConfigChange
+              - type: ImageChange
+                from:
+                  kind: ImageStreamTag
+                  name: custom-nginx-app:latest
         EOF_BUILD
       args:
         stdin: yes
@@ -165,9 +163,9 @@
             insecureEdgeTerminationPolicy: Redirect
         EOF_ROUTE
       args:
-        stdin: yes
-      changed_when: true
-      delegate_to: localhost
-      run_once: true
-      register: route_output
-    - debug: var=route_output.stdout_lines
+          stdin: yes
+        changed_when: true
+        delegate_to: localhost
+        run_once: true
+        register: route_output
+      - debug: var=route_output.stdout_lines
